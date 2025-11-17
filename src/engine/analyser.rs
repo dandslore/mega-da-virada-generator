@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::core::mega_sena::MegaSena;
+use crate::core::{historico_mega_sena::HistoricoMegaSena, mega_sena::MegaSena};
 
 /// Verifica se o jogo já existe no histórico
 pub fn game_already_exists(
@@ -86,4 +88,58 @@ pub fn has_repeated_trio_by_sets(
     }
 
     Ok(false)
+}
+
+pub fn listar_historico_mega_sena(
+    conn: &Connection,
+) -> Result<Vec<HistoricoMegaSena>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, concurso, data,
+                bola_1, bola_2, bola_3,
+                bola_4, bola_5, bola_6,
+                inserted_at
+         FROM t_historico_mega_sena
+         ORDER BY concurso ASC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        // Coleta todas as bolas em um vetor
+        let bolas: [Option<i64>; 6] = [
+            row.get(3)?,
+            row.get(4)?,
+            row.get(5)?,
+            row.get(6)?,
+            row.get(7)?,
+            row.get(8)?,
+        ];
+
+        // Cria e preenche o HashSet
+        let mut set = HashSet::new();
+        for b in bolas {
+            if let Some(v) = b {
+                set.insert(v);
+            }
+        }
+
+        Ok(HistoricoMegaSena {
+            id: row.get(0)?,
+            concurso: row.get(1)?,
+            data: row.get(2)?,
+            bola_1: bolas[0],
+            bola_2: bolas[1],
+            bola_3: bolas[2],
+            bola_4: bolas[3],
+            bola_5: bolas[4],
+            bola_6: bolas[5],
+            inserted_at: row.get(9)?,
+            set,
+        })
+    })?;
+
+    // Coleta tudo para um Vec<HistoricoMegaSena>
+    let historico: Vec<HistoricoMegaSena> = rows
+        .filter_map(|r| r.ok()) // descarta linhas com erro
+        .collect();
+
+    Ok(historico)
 }

@@ -16,6 +16,9 @@ use database::{csv, migrations};
 use engine::game_generator;
 use shared::sha3;
 
+use crate::core::historico_mega_sena::HistoricoMegaSena;
+use crate::engine::analyser;
+
 const IS_DADOS_INGERIDOS: bool = true;
 
 fn main() -> Result<()> {
@@ -55,46 +58,102 @@ fn main() -> Result<()> {
         }
     }
 
-    for i in 0..1000000 {
-        let generated_mega_sena: mega_sena::MegaSena =
-            engine::game_generator::generate_mega_sena(&conn)?;
+    let historico_mega_sela_list = match analyser::listar_historico_mega_sena(&conn) {
+        Ok(r) => r,
+        Err(_) => panic!("❌ Erro ao carregar histórico da Mega-Sena"),
+    };
 
-        let game_already_existis: bool =
-            match engine::analyser::game_already_exists(&conn, &generated_mega_sena) {
-                Ok(true) => true,
-                Ok(false) => false,
-                Err(e) => {
-                    println!("Erro ao verificar: {}", e);
-                    false
+    for i in 0..100 {
+        let generated_mega_sena = engine::game_generator::generate_mega_sena(&conn)?;
+
+        let mut ocorrencias_encontradas = false;
+        const QTD_TOLERAVEL: u8 = 4;
+
+        for h in &historico_mega_sela_list {
+            let mut contagem_ocorrencias: u8 = 0;
+
+            for numero in generated_mega_sena.jogo.clone() {
+                if h.set.contains(&numero) {
+                    contagem_ocorrencias += 1;
                 }
-            };
+            }
 
-        let repeated_trio: bool =
-            match engine::analyser::has_repeated_trio(&conn, &generated_mega_sena) {
-                Ok(true) => true,
-                Ok(false) => false,
-                Err(e) => {
-                    println!("Erro ao verificar: {}", e);
-                    false
-                }
-            };
+            if contagem_ocorrencias >= QTD_TOLERAVEL {
+                ocorrencias_encontradas = true;
 
-        if i % 1000 == 0 {
-            println!("...");
-            println!("Iteração [ {} ]", i);
-            println!("...");
+                println!(
+                    "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
+                 🚫 JOGO BLOQUEADO\n\
+                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
+                 O jogo {} NÃO deve ser jogado.\n\
+                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+                    generated_mega_sena
+                );
+
+                println!("Motivo:");
+                println!(
+                    "• Pelo menos {QTD_TOLERAVEL} números coincidem com um concurso anterior."
+                );
+                println!("• Concurso Nº: {}", h.concurso);
+                println!("• Bolas do concurso: {}", h);
+                println!("• Data: {}", h.data);
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+                break;
+            }
         }
-        if game_already_existis || repeated_trio {
-            println!("Iteração [ {} ]", i);
-            println!("---------------------------------------------");
-            println!("Numeros gerados: {}", generated_mega_sena);
 
-            println!("O jogo existe na historia?: {}", game_already_existis);
-
-            println!("O jogo possui um trio repetido?: {}", repeated_trio);
-            println!("---------------------------------------------");
+        if !ocorrencias_encontradas {
+            println!(
+                "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
+             ✅ JOGO PERMITIDO\n\
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
+             O jogo {} pode ser jogado.\n\
+             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+                generated_mega_sena
+            );
         }
     }
+
+    // if false {
+    //     for i in 0..1000000 {
+    //         let game_already_existis: bool =
+    //             match engine::analyser::game_already_exists(&conn, &generated_mega_sena) {
+    //                 Ok(true) => true,
+    //                 Ok(false) => false,
+    //                 Err(e) => {
+    //                     println!("Erro ao verificar: {}", e);
+    //                     false
+    //                 }
+    //             };
+
+    //         let repeated_trio: bool =
+    //             match engine::analyser::has_repeated_trio(&conn, &generated_mega_sena) {
+    //                 Ok(true) => true,
+    //                 Ok(false) => false,
+    //                 Err(e) => {
+    //                     println!("Erro ao verificar: {}", e);
+    //                     false
+    //                 }
+    //             };
+
+    //         if i % 1000 == 0 {
+    //             println!("...");
+    //             println!("Iteração [ {} ]", i);
+    //             println!("...");
+    //         }
+    //         if game_already_existis || repeated_trio {
+    //             println!("Iteração [ {} ]", i);
+    //             println!("---------------------------------------------");
+    //             println!("Numeros gerados: {}", generated_mega_sena);
+
+    //             println!("O jogo existe na historia?: {}", game_already_existis);
+
+    //             println!("O jogo possui um trio repetido?: {}", repeated_trio);
+    //             println!("---------------------------------------------");
+    //         }
+    //     }
+    // }
 
     Ok(())
 }
