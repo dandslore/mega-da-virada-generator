@@ -1,2 +1,2 @@
 pub mod analyser;
-pub mod game_generator;
+pub mod mega_sena_service;

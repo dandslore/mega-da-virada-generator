@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::core::{historico_mega_sena::HistoricoMegaSena, mega_sena::MegaSena};
+use crate::core::{mega_sena::MegaSena};
 
 /// Verifica se o jogo já existe no histórico
 pub fn game_already_exists(
@@ -11,32 +11,22 @@ pub fn game_already_exists(
 ) -> Result<bool, rusqlite::Error> {
     let exists: bool = conn.query_row(
         "SELECT EXISTS(
-                SELECT 1 FROM t_historico_mega_sena
+                SELECT 1 FROM t_mega_sena
                 WHERE bola_1=?1 AND bola_2=?2 AND bola_3=?3
                   AND bola_4=?4 AND bola_5=?5 AND bola_6=?6
             )",
         params![
-            megasena.jogo[0],
-            megasena.jogo[1],
-            megasena.jogo[2],
-            megasena.jogo[3],
-            megasena.jogo[4],
-            megasena.jogo[5],
+            megasena.bola_1,
+            megasena.bola_2,
+            megasena.bola_3,
+            megasena.bola_4,
+            megasena.bola_5,
+            megasena.bola_6,
         ],
         |row| row.get(0),
     )?;
 
     Ok(exists)
-}
-
-/// Função principal que o usuário vai chamar.
-/// Verifica se algum trio já saiu no passado.
-pub fn has_repeated_trio(conn: &Connection, megasena: &MegaSena) -> Result<bool, rusqlite::Error> {
-    // gerar trios corretamente
-    let trios = generate_trios(&megasena.jogo);
-
-    // delegar para a função que faz a consulta real
-    has_repeated_trio_by_sets(conn, &trios)
 }
 
 /// Gera todas as combinações de trios (C(6,3)=20) para um jogo de 6 números.
@@ -65,7 +55,7 @@ pub fn has_repeated_trio_by_sets(
 ) -> Result<bool, rusqlite::Error> {
     let sql = "
         SELECT concurso
-        FROM t_historico_mega_sena
+        FROM t_mega_sena
         WHERE bola_1 IN (?1,?2,?3)
            OR bola_2 IN (?1,?2,?3)
            OR bola_3 IN (?1,?2,?3)
@@ -92,13 +82,13 @@ pub fn has_repeated_trio_by_sets(
 
 pub fn listar_historico_mega_sena(
     conn: &Connection,
-) -> Result<Vec<HistoricoMegaSena>, rusqlite::Error> {
+) -> Result<Vec<MegaSena>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, concurso, data,
                 bola_1, bola_2, bola_3,
                 bola_4, bola_5, bola_6,
                 inserted_at
-         FROM t_historico_mega_sena
+         FROM t_mega_sena
          ORDER BY concurso ASC",
     )?;
 
@@ -121,7 +111,7 @@ pub fn listar_historico_mega_sena(
             }
         }
 
-        Ok(HistoricoMegaSena {
+        Ok(MegaSena {
             id: row.get(0)?,
             concurso: row.get(1)?,
             data: row.get(2)?,
@@ -132,12 +122,13 @@ pub fn listar_historico_mega_sena(
             bola_5: bolas[4],
             bola_6: bolas[5],
             inserted_at: row.get(9)?,
+            generated_by_rust: false,
             set,
         })
     })?;
 
     // Coleta tudo para um Vec<HistoricoMegaSena>
-    let historico: Vec<HistoricoMegaSena> = rows
+    let historico: Vec<MegaSena> = rows
         .filter_map(|r| r.ok()) // descarta linhas com erro
         .collect();
 

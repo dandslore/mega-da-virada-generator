@@ -11,20 +11,20 @@ pub mod database;
 pub mod engine;
 pub mod shared;
 
-use core::mega_sena;
-use database::{csv, migrations};
-use engine::game_generator;
+use database::{csv, migrations, mega_sena_bootstrap};
+use engine::mega_sena_service;
 use shared::sha3;
 
-use crate::core::historico_mega_sena::HistoricoMegaSena;
+use crate::core::mega_sena::MegaSena;
 use crate::engine::analyser;
 
-const IS_DADOS_INGERIDOS: bool = true;
+const QTD_TOLERAVEL: u8 = 4;
+const PRINT_NAO_JOGAVEL: bool = false;
+const QTD_JOGOS_DESEJADOS: u8 = 10;
 
 fn main() -> Result<()> {
     let db_path = "mega_sena.db";
     let csv_mega_sena_path = "mega_sena.csv";
-    let csv_lotofacil_path = "loto_facil.csv";
 
     let mut conn = Connection::open(db_path)?;
     println!("Conectado ao SQLite em {}", db_path);
@@ -36,41 +36,50 @@ fn main() -> Result<()> {
 
     database::migrations::run_migrations(&conn)?;
 
-    if !IS_DADOS_INGERIDOS {
-        if Path::new(csv_mega_sena_path).exists() {
-            println!("Iniciando ingestão do CSV '{}'", csv_mega_sena_path);
-            database::csv::ingest_csv_mega_sena_to_sqlite(&mut conn, csv_mega_sena_path)?;
-        } else {
-            println!(
-                "Arquivo CSV '{}' não encontrado — pulando ingestão.",
-                csv_mega_sena_path
-            );
-        }
 
-        if Path::new(csv_lotofacil_path).exists() {
-            println!("Iniciando ingestão do CSV '{}'", csv_lotofacil_path);
-            database::csv::ingest_csv_lotofacil_to_sqlite(&mut conn, csv_lotofacil_path)?;
-        } else {
-            println!(
-                "Arquivo CSV '{}' não encontrado — pulando ingestão.",
-                csv_lotofacil_path
-            );
-        }
-    }
+    mega_sena_bootstrap::bootstrap_mega_sena_data_from_csv();
 
     let historico_mega_sela_list = match analyser::listar_historico_mega_sena(&conn) {
         Ok(r) => r,
         Err(_) => panic!("❌ Erro ao carregar histórico da Mega-Sena"),
     };
 
-    let mut jogos_jogaveis_desejados: u8 = 10;
-    let mut jogos_gerados: Vec<HistoricoMegaSena> = Vec::with_capacity(jogos_jogaveis_desejados as usize);
+    let mut jogos_jogaveis_desejados: u8 = QTD_JOGOS_DESEJADOS;
+    let mut jogos_gerados: Vec<MegaSena> = Vec::with_capacity(jogos_jogaveis_desejados as usize);
+
+    let mut soma_minima = 346;
+    let mut soma_maxima = 0;
+
+    for j in &historico_mega_sela_list {
+        if j.generated_by_rust{
+            continue;
+        }
+        let soma = j.bola_1.unwrap_or(0) +
+            j.bola_2.unwrap_or(0) +
+            j.bola_3.unwrap_or(0) +
+            j.bola_4.unwrap_or(0) +
+            j.bola_5.unwrap_or(0) +
+            j.bola_6.unwrap_or(0);
+        if soma < soma_minima {
+            soma_minima = soma;
+        }
+
+        if soma > soma_maxima {
+            soma_maxima = soma;
+        }
+    }
+
+    println!("\n\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("Soma minima {}", soma_minima);
+    println!("Soma maxima {}", soma_maxima);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+
     while jogos_jogaveis_desejados > 0 {
-        let generated_mega_sena: HistoricoMegaSena = engine::game_generator::generate_mega_sena()?;
+        let generated_mega_sena: MegaSena = engine::mega_sena_service::generate_mega_sena()?;
 
         let mut ocorrencias_encontradas = false;
-        const QTD_TOLERAVEL: u8 = 4;
-        const PRINT_NAO_JOGAVEL: bool = false;
+
 
         for h in &historico_mega_sela_list {
             let mut contagem_ocorrencias: u8 = 0;
@@ -107,63 +116,21 @@ fn main() -> Result<()> {
         }
 
         if !ocorrencias_encontradas {
-            jogos_jogaveis_desejados -= 1;
-            jogos_gerados.push(generated_mega_sena.clone());
-            // println!(
-            //     "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-            //  ✅ JOGO PERMITIDO\n\
-            //  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-            //  O jogo {} pode ser jogado.\n\
-            //  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-            //     generated_mega_sena
-            // );
+
+            let mut soma_jogo = 0;
+            for n in &generated_mega_sena.set {
+                soma_jogo+=n;
+            }
+            if soma_jogo > soma_minima && soma_jogo < soma_maxima {
+                jogos_jogaveis_desejados -= 1;
+                jogos_gerados.push(generated_mega_sena.clone());
+            }
         }
     }
 
-    let mut soma_minima = 346;
-    let mut soma_maxima = 0;
-    for j in historico_mega_sela_list {
-        let soma = j.bola_1.unwrap_or(0) +
-           j.bola_2.unwrap_or(0) +
-          j.bola_3.unwrap_or(0) +
-         j.bola_4.unwrap_or(0) +
-        j.bola_5.unwrap_or(0) +
-       j.bola_6.unwrap_or(0);
-        if soma < soma_minima {
-            soma_minima = soma;
-        }
-
-        if soma > soma_maxima {
-            soma_maxima = soma;
-        }
-    }
-
-
-    println!("\n\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("Soma minima {}", soma_minima);
-    println!("Soma maxima {}", soma_maxima);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    let mut jogos_com_soma_valida: Vec<HistoricoMegaSena> = Vec::with_capacity(jogos_gerados.len());
-    for jogo in &jogos_gerados {
-        let mut soma_jogo = 0;
-        for n in &jogo.set {
-            soma_jogo+=n;
-        }
-        if soma_jogo > soma_minima && soma_jogo < soma_maxima {
-            jogos_com_soma_valida.push(jogo.clone());
-        }
-    }
-
-    for jogo in jogos_com_soma_valida {
-        println!(
-            "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-         ✅ JOGO PERMITIDO\n\
-         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-         O jogo {} pode ser jogado.\n\
-         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-         jogo
-        );
+    for jogo in jogos_gerados {
+        mega_sena_service::save(&mut conn, jogo.clone())?;
+        println!("{}",jogo);
     }
 
     Ok(())

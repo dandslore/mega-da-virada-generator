@@ -1,0 +1,1 @@
+ALTER TABLE t_mega_sena ADD COLUMN data_typesafe DATE;
